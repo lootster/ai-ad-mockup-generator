@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { AdGallery } from './components/AdGallery';
+import { ZoomModal } from './components/ZoomModal';
 import { generateAdMockup } from './services/geminiService';
 import type { ProductImage, AdFormat, GeneratedAd } from './types';
 import { AD_FORMATS } from './constants';
@@ -13,49 +14,37 @@ const App: React.FC = () => {
   );
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [zoomedAd, setZoomedAd] = useState<GeneratedAd | null>(null);
 
   const processAdGeneration = useCallback(async (image: ProductImage) => {
     setIsGenerating(true);
     setGlobalError(null);
+    // Set all to loading initially to give user feedback
     setGeneratedAds(prevAds => 
       prevAds.map(ad => ({ ...ad, isLoading: true, imageUrl: null, error: null }))
     );
 
-    const promises = AD_FORMATS.map(format => 
-      generateAdMockup(image, format.prompt)
-        // FIX: Add `as const` to help TypeScript infer a discriminated union.
-        // This allows type narrowing on the `settlement` object below, fixing property access errors.
-        .then(imageUrl => ({ status: 'fulfilled' as const, value: imageUrl, id: format.id }))
-        .catch(error => ({ status: 'rejected' as const, reason: error.message || 'Unknown error', id: format.id }))
-    );
-
-    const results = await Promise.allSettled(promises);
-
-    setGeneratedAds(prevAds => {
-      const newAds = [...prevAds];
-      results.forEach(result => {
-        // Fix for line 36: The .catch() on each promise ensures all promises passed to Promise.allSettled resolve.
-        // We must inspect the 'status' property of the custom object inside `result.value` to differentiate between success and failure.
-        if (result.status === 'fulfilled') {
-          const settlement = result.value;
-          if (settlement.status === 'fulfilled') {
-            const { id, value } = settlement;
-            const adIndex = newAds.findIndex(ad => ad.id === id);
-            if (adIndex !== -1) {
-              newAds[adIndex] = { ...newAds[adIndex], imageUrl: value, isLoading: false, error: null };
-            }
-          } else if (settlement.status === 'rejected') {
-            const { id, reason } = settlement;
-            const adIndex = newAds.findIndex(ad => ad.id === id);
-            if(adIndex !== -1) {
-              newAds[adIndex] = { ...newAds[adIndex], isLoading: false, error: reason };
-            }
-          }
-        }
-        // The original `else if (result.status === 'rejected')` block was unreachable and its logic was incorrect.
-      });
-      return newAds;
-    });
+    // Process requests sequentially to avoid rate limiting
+    for (const format of AD_FORMATS) {
+      try {
+        const imageUrl = await generateAdMockup(image, format.prompt);
+        setGeneratedAds(prevAds => 
+          prevAds.map(ad => 
+            ad.id === format.id 
+              ? { ...ad, imageUrl, isLoading: false, error: null }
+              : ad
+          )
+        );
+      } catch (error: any) {
+        setGeneratedAds(prevAds => 
+          prevAds.map(ad => 
+            ad.id === format.id 
+              ? { ...ad, isLoading: false, error: error.message || 'Generation failed' }
+              : ad
+          )
+        );
+      }
+    }
 
     setIsGenerating(false);
   }, []);
@@ -67,6 +56,20 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productImage]);
 
+  // Effect to handle 'Escape' key press for closing the modal
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setZoomedAd(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   const handleImageUpload = (image: ProductImage) => {
     setProductImage(image);
   };
@@ -76,6 +79,16 @@ const App: React.FC = () => {
     setGeneratedAds(AD_FORMATS.map(format => ({ ...format, imageUrl: null, isLoading: false, error: null })));
     setIsGenerating(false);
     setGlobalError(null);
+  };
+
+  const handleZoomAd = (ad: GeneratedAd) => {
+    if (ad.imageUrl) {
+      setZoomedAd(ad);
+    }
+  };
+
+  const handleCloseZoom = () => {
+    setZoomedAd(null);
   };
 
   return (
@@ -119,11 +132,12 @@ const App: React.FC = () => {
           )}
           
           {(isGenerating || (productImage && generatedAds.some(ad => ad.imageUrl || ad.isLoading || ad.error))) && (
-            <AdGallery ads={generatedAds} />
+            <AdGallery ads={generatedAds} onZoomAd={handleZoomAd} />
           )}
 
         </main>
       </div>
+      {zoomedAd && <ZoomModal ad={zoomedAd} onClose={handleCloseZoom} />}
     </div>
   );
 };
