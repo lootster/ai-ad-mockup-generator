@@ -1,0 +1,5 @@
+{
+  "name": "Ad Mockup Generator",
+  "description": "Upload a product image and instantly generate mockups of it in various advertising formats like billboards, magazine ads, and social media posts using Gemini.",
+  "requestFramePermissions": []
+}
