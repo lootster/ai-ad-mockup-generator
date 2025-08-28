@@ -23,8 +23,10 @@ const App: React.FC = () => {
 
     const promises = AD_FORMATS.map(format => 
       generateAdMockup(image, format.prompt)
-        .then(imageUrl => ({ status: 'fulfilled', value: imageUrl, id: format.id }))
-        .catch(error => ({ status: 'rejected', reason: error.message || 'Unknown error', id: format.id }))
+        // FIX: Add `as const` to help TypeScript infer a discriminated union.
+        // This allows type narrowing on the `settlement` object below, fixing property access errors.
+        .then(imageUrl => ({ status: 'fulfilled' as const, value: imageUrl, id: format.id }))
+        .catch(error => ({ status: 'rejected' as const, reason: error.message || 'Unknown error', id: format.id }))
     );
 
     const results = await Promise.allSettled(promises);
@@ -103,7 +105,7 @@ const App: React.FC = () => {
           {productImage && (
              <div className="flex flex-col items-center mb-8">
                 <div className="relative group">
-                    <img src={productImage.data} alt="Uploaded Product" className="max-h-60 rounded-lg shadow-lg border-4 border-slate-700" />
+                    <img src={`data:${productImage.mimeType};base64,${productImage.data}`} alt="Uploaded Product" className="max-h-60 rounded-lg shadow-lg border-4 border-slate-700" />
                     <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
                         <button 
                             onClick={handleReset}
